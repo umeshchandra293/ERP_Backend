@@ -200,7 +200,7 @@ components:
       properties:
         shiftId:       { type: string, readOnly: true }
         shiftDate:     { type: string, format: date }
-        shiftType:     { type: string, enum: [MORNING, EVENING, NIGHT] }
+        shiftType: { type: string, enum: [DAY, MORNING, EVENING, NIGHT] }
         operatorName:  { type: string }
         notes:         { type: string }
         status:        { type: string }

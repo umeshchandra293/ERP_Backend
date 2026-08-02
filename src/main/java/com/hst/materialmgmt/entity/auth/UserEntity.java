@@ -10,6 +10,7 @@ import lombok.*;
 @Table(value = "users_tbl", schema = "rm_material_schema")
 public class UserEntity {
     @Id @Column("user_id")         private String        userId;
+    @Column("company_id")          private String        companyId;
     @Column("username")            private String        username;
     @Column("password_hash")       private String        passwordHash;
     @Column("full_name")           private String        fullName;

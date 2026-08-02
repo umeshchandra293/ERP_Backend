@@ -17,6 +17,7 @@ public class UserRepository {
             .bind("u", username)
             .map((row, meta) -> UserEntity.builder()
                 .userId(row.get("user_id",       String.class))
+                .companyId(row.get("company_id", String.class))
                 .username(row.get("username",     String.class))
                 .passwordHash(row.get("password_hash", String.class))
                 .fullName(row.get("full_name",    String.class))

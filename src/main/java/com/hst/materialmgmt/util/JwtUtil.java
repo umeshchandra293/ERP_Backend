@@ -21,11 +21,13 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generate(String username, String role, String fullName) {
+    // companyId added — required for tenant isolation on every subsequent request
+    public String generate(String username, String role, String fullName, String companyId) {
         return Jwts.builder()
             .setSubject(username)
-            .claim("role",     role)
-            .claim("fullName", fullName)
+            .claim("role",      role)
+            .claim("fullName",  fullName)
+            .claim("companyId", companyId)
             .setIssuedAt(new Date())
             .setExpiration(new Date(System.currentTimeMillis() + expiryHours * 3600_000L))
             .signWith(key(), SignatureAlgorithm.HS256)
@@ -43,6 +45,7 @@ public class JwtUtil {
         catch (JwtException | IllegalArgumentException e) { return false; }
     }
 
-    public String getUsername(String token) { return parse(token).getSubject(); }
-    public String getRole(String token)     { return (String) parse(token).get("role"); }
+    public String getUsername(String token)  { return parse(token).getSubject(); }
+    public String getRole(String token)      { return (String) parse(token).get("role"); }
+    public String getCompanyId(String token) { return (String) parse(token).get("companyId"); }
 }

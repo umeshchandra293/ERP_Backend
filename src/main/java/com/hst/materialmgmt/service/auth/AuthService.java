@@ -16,7 +16,8 @@ public class AuthService {
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(12);
 
     public record LoginRequest(String username, String password) {}
-    public record LoginResponse(String token, String username, String fullName, String role) {}
+    public record LoginResponse(String token, String username, String fullName,
+                                 String role, String companyId) {}
 
     public Mono<LoginResponse> login(LoginRequest req) {
         return userRepo.findByUsername(req.username())
@@ -24,8 +25,8 @@ public class AuthService {
             .switchIfEmpty(Mono.error(new RuntimeException("Invalid credentials")))
             .flatMap(u -> userRepo.updateLastLogin(u.getUsername())
                 .thenReturn(new LoginResponse(
-                    jwt.generate(u.getUsername(), u.getRole(), u.getFullName()),
-                    u.getUsername(), u.getFullName(), u.getRole()
+                    jwt.generate(u.getUsername(), u.getRole(), u.getFullName(), u.getCompanyId()),
+                    u.getUsername(), u.getFullName(), u.getRole(), u.getCompanyId()
                 )));
     }
 

@@ -30,7 +30,7 @@ import reactor.core.publisher.Mono;
 @Service
 public class RawMaterialService extends ParentBaseServiceImpl {
 
-    @Autowired private RawMaterialRepository repository;
+    @Autowired private RawMaterialRepository  repository;
     @Autowired private RawMaterialMapper      mapper;
     @Autowired private MaterialCodeGenerator  codeGenerator;
 
@@ -38,16 +38,15 @@ public class RawMaterialService extends ParentBaseServiceImpl {
     @Autowired private GrnItemRepository      grnItemRepo;
     @Autowired private StockMovementRepository movementRepo;
 
-    @Override protected BaseMapper getMapper()                       { return mapper; }
-    @Override protected ParentRepositoryImpl getParentRepository()   { return repository; }
+    @Override protected BaseMapper getMapper()                     { return mapper; }
+    @Override protected ParentRepositoryImpl getParentRepository() { return repository; }
 
-    // ── Material create — inject server-generated code ────────────────────────
+    // ── Material create ───────────────────────────────────────────────────────
 
     @Override
     public Mono<Object> createFullHierarchy(Mono<Object> parentMono) {
         if (parentMono == null)
             return Mono.error(new IllegalArgumentException("Material cannot be null"));
-
         Mono<Object> codedMono = parentMono.flatMap(model -> {
             RawMaterial mat = (RawMaterial) model;
             return codeGenerator.nextMaterialCode()
@@ -56,9 +55,7 @@ public class RawMaterialService extends ParentBaseServiceImpl {
         return super.createFullHierarchy(codedMono);
     }
 
-    // ── Material update — override to also save unit_price directly ───────────
-    // The generic buildDataParams sometimes skips BigDecimal fields.
-    // We run a targeted SQL after the generic update to guarantee unit_price is saved.
+    // ── Material update ───────────────────────────────────────────────────────
 
     @Override
     public Mono<Object> updateFullHierarchy(String id, Mono<Object> parentMono) {
@@ -113,7 +110,52 @@ public class RawMaterialService extends ParentBaseServiceImpl {
         });
     }
 
-    // ── Save one GRN item + INBOUND stock movement ────────────────────────────
+    // ── GRN update header ─────────────────────────────────────────────────────
+
+    public Mono<Void> updateGrn(String grnId, String supplierCode, LocalDate receivedDate,
+                                String invoiceNumber, String notes, String status) {
+        return grnRepo.updateGrn(grnId, supplierCode, receivedDate, invoiceNumber, notes, status);
+    }
+
+    // ── GRN update line item ──────────────────────────────────────────────────
+
+    public Mono<Void> updateGrnItem(String grnId, String grnItemId,
+                                    Double orderedQty, Double receivedQty, Double unitCost) {
+        return grnItemRepo.updateGrnItem(grnItemId, orderedQty, receivedQty, unitCost)
+                .then(syncStockMovement(grnId, grnItemId, receivedQty));
+    }
+
+    // Sync INBOUND movement qty so stock on hand stays correct after item edit
+    private Mono<Void> syncStockMovement(String grnId, String grnItemId, Double receivedQty) {
+        if (receivedQty == null) return Mono.empty();
+        return grnItemRepo.findByGrnItemId(grnItemId)
+                .flatMap(item ->
+                        movementRepo.findByReferenceId(grnId, "GRN")
+                                .filter(mv -> mv.getMaterialId().equals(item.getMaterialId())
+                                           && "INBOUND".equals(mv.getMovementType()))
+                                .next()
+                                .flatMap(mv -> movementRepo.updateMovementQty(
+                                        mv.getMovementId(),
+                                        BigDecimal.valueOf(receivedQty)))
+                )
+                .then();
+    }
+
+    // ── GRN delete ────────────────────────────────────────────────────────────
+
+    public Mono<Void> deleteGrn(String grnId) {
+        return movementRepo.deleteByReferenceId(grnId)
+                .then(grnItemRepo.deleteByGrnId(grnId))
+                .then(grnRepo.deleteByGrnId(grnId));
+    }
+
+    // ── Reset RM stock ────────────────────────────────────────────────────────
+
+    public Mono<Void> resetRmStock() {
+        return movementRepo.resetAllStock();
+    }
+
+    // ── Save one GRN item + INBOUND movement ──────────────────────────────────
 
     private Mono<GrnItemResponse> saveItemAndMovement(String grnId, GrnItemRequest item) {
         return grnItemRepo.nextGrnItemId().flatMap(itemId -> {
@@ -182,13 +224,4 @@ public class RawMaterialService extends ParentBaseServiceImpl {
         r.setNotes(e.getNotes());
         return r;
     }
-    public Mono<Void> deleteGrn(String grnId) {
-    return movementRepo.deleteByReferenceId(grnId)   // reverse stock
-        .then(grnItemRepo.deleteByGrnId(grnId))       // delete line items
-        .then(grnRepo.deleteByGrnId(grnId));           // delete header
-}
-
-public Mono<Void> resetRmStock() {
-    return movementRepo.resetAllStock();
-}
 }

@@ -103,10 +103,6 @@ public class StockMovementController implements StockMovementApi {
                 });
     }
 
-    // ── DELETE /material/mgmt/inventory/reset-stock ───────────────────────────
-    // Zeros out all RM stock quantities — keeps GRN history
-
-    // ── Dashboard endpoints ───────────────────────────────────────────────────
 
     @GetMapping("/inventory/dashboard")
     public Mono<ResponseEntity<DashboardSummary>> getDashboard(
