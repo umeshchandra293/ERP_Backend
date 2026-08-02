@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import com.hst.api.RawMaterialApi;
 import com.hst.api.model.RawMaterial;
@@ -57,10 +58,32 @@ public class RawMaterialController extends BaseController implements RawMaterial
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }
 
+    // ── Delete — catches FK violations and returns a clean 409 instead of a raw 500 ──
+    // The frontend (RawMaterialListPage.tsx) already checks the error message for
+    // '23503' / 'foreign key' / 'referenced' and shows a friendly alert — this just
+    // makes sure that message actually reaches the browser instead of being lost
+    // as a generic Internal Server Error.
+
     @Override
     public Mono<ResponseEntity<Void>> deleteMaterial(
             String materialId, ServerWebExchange exchange) {
-        return delete(rawMaterialService, materialId, exchange);
+        return delete(rawMaterialService, materialId, exchange)
+                .onErrorResume(e -> {
+                    String msg = e.getMessage() != null ? e.getMessage() : "";
+                    boolean isForeignKeyViolation =
+                            msg.contains("23503") ||
+                            msg.toLowerCase().contains("foreign key") ||
+                            msg.toLowerCase().contains("violates");
+
+                    if (isForeignKeyViolation) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.CONFLICT,
+                                "Cannot delete — this material is referenced by existing GRN "
+                                + "or stock movement records (foreign key constraint). "
+                                + "Deactivate it instead."));
+                    }
+                    return Mono.error(e);
+                });
     }
 
     @GetMapping("/rawmaterial/categories")
