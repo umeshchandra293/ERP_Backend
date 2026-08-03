@@ -1,4 +1,4 @@
-package com.hst.materialmgmt.controller;
+package com.hst.materialmgmt.controller.rawMaterail;
 
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,12 +17,10 @@ import reactor.core.publisher.Mono;
 @RestController
 @RequestMapping("/material/mgmt")
 @Tag(name = "Raw Material API")
-public class RawMaterialController extends BaseController implements RawMaterialApi {
+public class RawMaterialController extends com.hst.materialmgmt.controller.BaseController implements RawMaterialApi {
 
     @Autowired private RawMaterialService rawMaterialService;
 
-    // Overrides the interface's Flux version — returns collected List to avoid
-    // chunked encoding issues in the browser
     @Override
     public Mono<ResponseEntity<Flux<RawMaterial>>> getAllMaterials(
             String category, Boolean isActive, ServerWebExchange exchange) {
@@ -58,22 +56,43 @@ public class RawMaterialController extends BaseController implements RawMaterial
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }
 
-    // ── Delete — catches FK violations and returns a clean 409 instead of a raw 500 ──
-    // The frontend (RawMaterialListPage.tsx) already checks the error message for
-    // '23503' / 'foreign key' / 'referenced' and shows a friendly alert — this just
-    // makes sure that message actually reaches the browser instead of being lost
-    // as a generic Internal Server Error.
+    // ── Delete — bypasses BaseController.delete() entirely ──────────────────
+    // BaseController.delete() swallows every error into a plain 500 before it
+    // ever returns, which meant our onErrorResume here never saw a real error
+    // signal to catch. So this calls the service directly instead, keeping the
+    // error signal alive so we CAN catch the FK violation and translate it into
+    // a proper 409 with a helpful message.
 
     @Override
     public Mono<ResponseEntity<Void>> deleteMaterial(
             String materialId, ServerWebExchange exchange) {
-        return delete(rawMaterialService, materialId, exchange)
+
+        if (materialId == null || materialId.isEmpty()) {
+            return Mono.error(new IllegalArgumentException("Material ID cannot be null or empty"));
+        }
+
+        return rawMaterialService.deleteFullHierarchy(materialId)
+                .then(Mono.fromCallable(() -> ResponseEntity.noContent().<Void>build()))
                 .onErrorResume(e -> {
-                    String msg = e.getMessage() != null ? e.getMessage() : "";
+                    System.err.println("=== DELETE ERROR DEBUG ===");
+                    System.err.println("Exception class: " + e.getClass().getName());
+                    System.err.println("Exception message: " + e.getMessage());
+                    Throwable cause = e.getCause();
+                    int depth = 0;
+                    while (cause != null && depth < 5) {
+                        System.err.println("Cause[" + depth + "] class: " + cause.getClass().getName());
+                        System.err.println("Cause[" + depth + "] message: " + cause.getMessage());
+                        cause = cause.getCause();
+                        depth++;
+                    }
+                    System.err.println("==========================");
+
+                    String msg = buildFullMessage(e);
                     boolean isForeignKeyViolation =
                             msg.contains("23503") ||
                             msg.toLowerCase().contains("foreign key") ||
-                            msg.toLowerCase().contains("violates");
+                            msg.toLowerCase().contains("violates") ||
+                            msg.toLowerCase().contains("still referenced");
 
                     if (isForeignKeyViolation) {
                         return Mono.error(new ResponseStatusException(
@@ -84,6 +103,18 @@ public class RawMaterialController extends BaseController implements RawMaterial
                     }
                     return Mono.error(e);
                 });
+    }
+
+    private String buildFullMessage(Throwable t) {
+        StringBuilder sb = new StringBuilder();
+        Throwable current = t;
+        int depth = 0;
+        while (current != null && depth < 6) {
+            if (current.getMessage() != null) sb.append(current.getMessage()).append(" | ");
+            current = current.getCause();
+            depth++;
+        }
+        return sb.toString();
     }
 
     @GetMapping("/rawmaterial/categories")
