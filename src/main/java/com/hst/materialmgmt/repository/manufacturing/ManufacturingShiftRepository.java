@@ -30,15 +30,12 @@ public class ManufacturingShiftRepository extends ParentRepositoryImpl {
                 .map((row, meta) -> rowMapper.apply(row, meta)).all();
     }
 
-    public Mono<String> nextShiftId() {
-        return databaseClient.sql("""
-            SELECT s.n FROM generate_series(1,(SELECT COUNT(*)+1 FROM rm_material_schema.manufacturing_shift_tbl)) AS s(n)
-            WHERE NOT EXISTS (
-                SELECT 1 FROM rm_material_schema.manufacturing_shift_tbl
-                WHERE shift_id = CONCAT('SHIFT-', LPAD(s.n::text,6,'0'))
-            ) ORDER BY s.n LIMIT 1
-            """)
-                .map((row, meta) -> row.get(0, Long.class)).one()
-                .map(n -> String.format("SHIFT-%06d", n));
-    }
+public Mono<String> nextShiftId() {
+    return databaseClient.sql("""
+        SELECT COALESCE(MAX(CAST(SUBSTRING(shift_id FROM 7) AS INTEGER)), 0) + 1 AS next_num
+        FROM rm_material_schema.manufacturing_shift_tbl
+        """)
+            .map((row, meta) -> row.get("next_num", Integer.class)).one()
+            .map(n -> String.format("SHIFT-%06d", n));
+}
 }
